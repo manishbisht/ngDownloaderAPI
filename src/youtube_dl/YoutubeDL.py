@@ -370,10 +370,10 @@ class YoutubeDL(object):
                 else:
                     raise
 
-        if (sys.version_info >= (3,) and sys.platform != 'win32' and
+        if (sys.platform != 'win32' and
                 sys.getfilesystemencoding() in ['ascii', 'ANSI_X3.4-1968'] and
                 not params.get('restrictfilenames', False)):
-            # On Python 3, the Unicode filesystem API will throw errors (#1474)
+            # Unicode filesystem API will throw errors (#1474, #13027)
             self.report_warning(
                 'Assuming --restrict-filenames since file system encoding '
                 'cannot encode all characters. '
@@ -640,7 +640,7 @@ class YoutubeDL(object):
 
             NUMERIC_FIELDS = set((
                 'width', 'height', 'tbr', 'abr', 'asr', 'vbr', 'fps', 'filesize', 'filesize_approx',
-                'upload_year', 'upload_month', 'upload_day',
+                'timestamp', 'upload_year', 'upload_month', 'upload_day',
                 'duration', 'view_count', 'like_count', 'dislike_count', 'repost_count',
                 'average_rating', 'comment_count', 'age_limit',
                 'start_time', 'end_time',

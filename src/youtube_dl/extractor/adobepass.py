@@ -36,6 +36,11 @@ MSO_INFO = {
         'username_field': 'Ecom_User_ID',
         'password_field': 'Ecom_Password',
     },
+    'Brighthouse': {
+        'name': 'Bright House Networks | Spectrum',
+        'username_field': 'j_username',
+        'password_field': 'j_password',
+    },
     'Charter_Direct': {
         'name': 'Charter Spectrum',
         'username_field': 'IDToken1',
@@ -1307,6 +1312,12 @@ class AdobePassIE(InfoExtractor):
     _SERVICE_PROVIDER_TEMPLATE = 'https://sp.auth.adobe.com/adobe-services/%s'
     _USER_AGENT = 'Mozilla/5.0 (X11; Linux i686; rv:47.0) Gecko/20100101 Firefox/47.0'
     _MVPD_CACHE = 'ap-mvpd'
+
+    def _download_webpage_handle(self, *args, **kwargs):
+        headers = kwargs.get('headers', {})
+        headers.update(self.geo_verification_headers())
+        kwargs['headers'] = headers
+        return super(AdobePassIE, self)._download_webpage_handle(*args, **kwargs)
 
     @staticmethod
     def _get_mvpd_resource(provider_id, title, guid, rating):

@@ -5,6 +5,7 @@ import re
 import json
 
 from .common import InfoExtractor
+from .adobepass import AdobePassIE
 from ..compat import (
     compat_etree_fromstring,
     compat_parse_qs,
@@ -131,6 +132,12 @@ class BrightcoveLegacyIE(InfoExtractor):
             },
             'playlist_mincount': 10,
         },
+        {
+            # playerID inferred from bcpid
+            # from http://www.un.org/chinese/News/story.asp?NewsID=27724
+            'url': 'https://link.brightcove.com/services/player/bcpid1722935254001/?bctid=5360463607001&autoStart=false&secureConnections=true&width=650&height=350',
+            'only_matching': True,  # Tested in GenericIE
+        }
     ]
     FLV_VCODECS = {
         1: 'SORENSON',
@@ -266,9 +273,13 @@ class BrightcoveLegacyIE(InfoExtractor):
         if matches:
             return list(filter(None, [cls._build_brighcove_url(m) for m in matches]))
 
-        return list(filter(None, [
-            cls._build_brighcove_url_from_js(custom_bc)
-            for custom_bc in re.findall(r'(customBC\.createVideo\(.+?\);)', webpage)]))
+        matches = re.findall(r'(customBC\.createVideo\(.+?\);)', webpage)
+        if matches:
+            return list(filter(None, [
+                cls._build_brighcove_url_from_js(custom_bc)
+                for custom_bc in matches]))
+        return [src for _, src in re.findall(
+            r'<iframe[^>]+src=([\'"])((?:https?:)?//link\.brightcove\.com/services/player/(?!\1).+)\1', webpage)]
 
     def _real_extract(self, url):
         url, smuggled_data = unsmuggle_url(url, {})
@@ -285,6 +296,10 @@ class BrightcoveLegacyIE(InfoExtractor):
         if videoPlayer:
             # We set the original url as the default 'Referer' header
             referer = smuggled_data.get('Referer', url)
+            if 'playerID' not in query:
+                mobj = re.search(r'/bcpid(\d+)', url)
+                if mobj is not None:
+                    query['playerID'] = [mobj.group(1)]
             return self._get_video_info(
                 videoPlayer[0], query, referer=referer)
         elif 'playerKey' in query:
@@ -434,7 +449,7 @@ class BrightcoveLegacyIE(InfoExtractor):
         return info
 
 
-class BrightcoveNewIE(InfoExtractor):
+class BrightcoveNewIE(AdobePassIE):
     IE_NAME = 'brightcove:new'
     _VALID_URL = r'https?://players\.brightcove\.net/(?P<account_id>\d+)/(?P<player_id>[^/]+)_(?P<embed>[^/]+)/index\.html\?.*videoId=(?P<video_id>\d+|ref:[^&]+)'
     _TESTS = [{
@@ -484,8 +499,8 @@ class BrightcoveNewIE(InfoExtractor):
     }]
 
     @staticmethod
-    def _extract_url(webpage):
-        urls = BrightcoveNewIE._extract_urls(webpage)
+    def _extract_url(ie, webpage):
+        urls = BrightcoveNewIE._extract_urls(ie, webpage)
         return urls[0] if urls else None
 
     @staticmethod
@@ -508,7 +523,7 @@ class BrightcoveNewIE(InfoExtractor):
         # [2] looks like:
         for video, script_tag, account_id, player_id, embed in re.findall(
                 r'''(?isx)
-                    (<video\s+[^>]+>)
+                    (<video\s+[^>]*\bdata-video-id\s*=\s*['"]?[^>]+>)
                     (?:.*?
                         (<script[^>]+
                             src=["\'](?:https?:)?//players\.brightcove\.net/
@@ -588,6 +603,20 @@ class BrightcoveNewIE(InfoExtractor):
                 raise ExtractorError(message, expected=True)
             raise
 
+        errors = json_data.get('errors')
+        if errors and errors[0].get('error_subcode') == 'TVE_AUTH':
+            custom_fields = json_data['custom_fields']
+            tve_token = self._extract_mvpd_auth(
+                smuggled_data['source_url'], video_id,
+                custom_fields['bcadobepassrequestorid'],
+                custom_fields['bcadobepassresourceid'])
+            json_data = self._download_json(
+                api_url, video_id, headers={
+                    'Accept': 'application/json;pk=%s' % policy_key
+                }, query={
+                    'tveToken': tve_token,
+                })
+
         title = json_data['name'].strip()
 
         formats = []
@@ -653,7 +682,6 @@ class BrightcoveNewIE(InfoExtractor):
                     })
                 formats.append(f)
 
-        errors = json_data.get('errors')
         if not formats and errors:
             error = errors[0]
             raise ExtractorError(
@@ -670,7 +698,7 @@ class BrightcoveNewIE(InfoExtractor):
 
         is_live = False
         duration = float_or_none(json_data.get('duration'), 1000)
-        if duration and duration < 0:
+        if duration is not None and duration <= 0:
             is_live = True
 
         return {
